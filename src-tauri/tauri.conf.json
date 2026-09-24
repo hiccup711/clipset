@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Clipset",
+  "version": "0.2.8",
+  "identifier": "app.copyy.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Clipset",
+        "width": 1000,
+        "height": 700,
+        "minWidth": 680,
+        "minHeight": 480,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "resizable": true,
+        "alwaysOnTop": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app"
+    ],
+    "category": "Utility",
+    "shortDescription": "本地剪贴板记录与管理",
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "infoPlist": "Info.plist",
+      "signingIdentity": "-"
+    },
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.icns"
+    ]
+  }
+}
