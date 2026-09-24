@@ -21,8 +21,8 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: '22'
           cache: npm
@@ -59,8 +59,8 @@ jobs:
       BUILD_TARGET: ${{ matrix.target }}
       BUILD_ARCH: ${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: '22'
           cache: npm
@@ -68,13 +68,14 @@ jobs:
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy --target "$BUILD_TARGET"
           rustup override set "$RUST_TOOLCHAIN"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
           key: rust-${{ runner.os }}-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
+          restore-keys: rust-${{ runner.os }}-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}-
       - run: npm ci
       - name: Rust tests and lint
         run: |
@@ -96,7 +97,7 @@ jobs:
           mkdir -p release-assets
           cp "$dmg" release-assets/
           ditto -c -k --sequesterRsrc --keepParent "$app" "release-assets/Clipset_${RELEASE_VERSION}_${BUILD_ARCH}.app.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: clipset-${{ matrix.arch }}
           path: release-assets/*
@@ -117,8 +118,8 @@ jobs:
       RELEASE_TAG: ${{ github.ref_name }}
       RELEASE_VERSION: ${{ needs.validate.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.1
         with:
           pattern: clipset-*
           path: release-assets

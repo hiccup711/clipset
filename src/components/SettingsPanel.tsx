@@ -308,7 +308,7 @@ export function SettingsPanel({
       )}
       <div className="settings-footer">
         <span>
-          Clipset <span className="muted">0.2.8</span>
+          Clipset <span className="muted">0.2.9</span>
         </span>
         <button
           className="button primary"
