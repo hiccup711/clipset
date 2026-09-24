@@ -1,0 +1,144 @@
+name: macOS Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Version and frontend tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Check version consistency and release tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: |
+          version=$(node scripts/check-release-version.mjs "$RELEASE_TAG")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - arch: x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_TOOLCHAIN: '1.98.0'
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      BUILD_TARGET: ${{ matrix.target }}
+      BUILD_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy --target "$BUILD_TARGET"
+          rustup override set "$RUST_TOOLCHAIN"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: rust-${{ runner.os }}-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
+      - run: npm ci
+      - name: Rust tests and lint
+        run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
+          cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Native bridge tests
+        run: |
+          npm run test:shortcuts
+          npm run test:native
+      - name: Build app and DMG with ad-hoc signing
+        run: npm run tauri build -- --target "$BUILD_TARGET" --bundles app,dmg --ci -- --locked
+      - name: Verify and collect packages
+        run: |
+          bundle="src-tauri/target/$BUILD_TARGET/release/bundle"
+          app="$bundle/macos/Clipset.app"
+          dmg="$bundle/dmg/Clipset_${RELEASE_VERSION}_${BUILD_ARCH}.dmg"
+          codesign --verify --deep --strict "$app"
+          hdiutil verify -quiet "$dmg"
+          mkdir -p release-assets
+          cp "$dmg" release-assets/
+          ditto -c -k --sequesterRsrc --keepParent "$app" "release-assets/Clipset_${RELEASE_VERSION}_${BUILD_ARCH}.app.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clipset-${{ matrix.arch }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: [validate, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: clipset-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: release-assets
+        run: sha256sum ./*.dmg ./*.app.zip > SHA256SUMS.txt
+      - name: Upload all assets before publishing
+        run: |
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$draft" != true ]; then
+              echo 'This release is already published. Use a new version tag instead of replacing installed binaries.' >&2
+              exit 1
+            fi
+          else
+            flags=()
+            if [[ "$RELEASE_VERSION" == *-* ]]; then flags+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "Clipset $RELEASE_VERSION" \
+              --notes-file .github/release-notes.md "${flags[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

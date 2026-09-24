@@ -49,6 +49,25 @@ npm run tauri build -- --bundles app
 
 临时签名的授权身份依赖构建内容，重新打包后可能需要重新添加辅助功能授权。安装到固定位置后只运行该副本，不要混用 DMG 内应用、debug 二进制和构建目录产物。当前按用户要求保留此打包方式。
 
+## GitHub 自动发布
+
+工作流：`.github/workflows/release.yml`。推送 `v*` 标签后，GitHub Actions 会检查版本号、执行前端/Rust/原生桥接测试与 Clippy，分别在 Apple Silicon 和 Intel macOS runner 上构建 DMG 及 `.app.zip`。只有两个架构全部成功，才上传完整附件和 SHA-256 校验文件并发布 Release。使用 GitHub 自带的 `GITHUB_TOKEN`，无需配置 Apple 证书或公证密钥。
+
+发布前同步 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json` 和设置页中的版本号。然后执行（以 0.2.8 为例）：
+
+```bash
+node scripts/check-release-version.mjs v0.2.8
+git add .
+git commit -m "Release 0.2.8"
+git push origin main
+git tag v0.2.8
+git push origin v0.2.8
+```
+
+也可以在 GitHub 的 **Actions → macOS Release → Run workflow** 手动检查并构建；从分支手动运行只生成 Actions artifacts，不发布 Release。标签运行失败时可在 Actions 重新运行，未发布的草稿会被续传；已经发布的版本不会被覆盖，应使用新版本标签。
+
+安装包下载入口：[GitHub Releases](https://github.com/hiccup711/clipset/releases)。`aarch64` 适用于 M 系列 Mac，`x64` 适用于 Intel Mac。安装包沿用临时签名，首次打开及更新后的辅助功能权限按上文处理。
+
 ## 使用
 
 1. 启动 Clipset，在其他应用里正常复制内容。
