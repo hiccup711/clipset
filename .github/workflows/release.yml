@@ -58,6 +58,9 @@ jobs:
       RELEASE_VERSION: ${{ needs.validate.outputs.version }}
       BUILD_TARGET: ${{ matrix.target }}
       BUILD_ARCH: ${{ matrix.arch }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.0.0
@@ -77,6 +80,16 @@ jobs:
           key: rust-${{ runner.os }}-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
           restore-keys: rust-${{ runner.os }}-${{ matrix.target }}-${{ env.RUST_TOOLCHAIN }}-
       - run: npm ci
+      - name: Require stable Apple signing configuration
+        run: |
+          test -n "$APPLE_SIGNING_IDENTITY" || { echo 'Missing APPLE_SIGNING_IDENTITY repository secret.' >&2; exit 1; }
+          test -n "$APPLE_CERTIFICATE" || { echo 'Missing APPLE_CERTIFICATE repository secret.' >&2; exit 1; }
+          test -n "$APPLE_CERTIFICATE_PASSWORD" || { echo 'Missing APPLE_CERTIFICATE_PASSWORD repository secret.' >&2; exit 1; }
+      - name: Import Apple signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       - name: Rust tests and lint
         run: |
           cargo test --locked --manifest-path src-tauri/Cargo.toml --lib
@@ -85,14 +98,24 @@ jobs:
         run: |
           npm run test:shortcuts
           npm run test:native
-      - name: Build app and DMG with ad-hoc signing
-        run: npm run tauri build -- --target "$BUILD_TARGET" --bundles app,dmg --ci -- --locked
+      - name: Build app and DMG with stable Apple signing
+        run: |
+          jq --arg identity "$APPLE_SIGNING_IDENTITY" \
+            '.bundle.macOS.signingIdentity = $identity' \
+            src-tauri/tauri.conf.json > src-tauri/tauri.release.conf.json
+          npm run tauri build -- --target "$BUILD_TARGET" --bundles app,dmg --ci \
+            --config src-tauri/tauri.release.conf.json -- --locked
       - name: Verify and collect packages
         run: |
           bundle="src-tauri/target/$BUILD_TARGET/release/bundle"
           app="$bundle/macos/Clipset.app"
           dmg="$bundle/dmg/Clipset_${RELEASE_VERSION}_${BUILD_ARCH}.dmg"
           codesign --verify --deep --strict "$app"
+          requirement=$(codesign -dr - "$app" 2>&1)
+          echo "$requirement"
+          case "$requirement" in
+            *"cdhash"*) echo 'Stable certificate requirement was not embedded; refusing to publish.' >&2; exit 1 ;;
+          esac
           hdiutil verify -quiet "$dmg"
           mkdir -p release-assets
           cp "$dmg" release-assets/

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 /dist.zip
+src-tauri/tauri.release.conf.json
 src-tauri/target/
 .DS_Store
 *.log

@@ -45,9 +45,15 @@ npm run tauri build -- --bundles app
 
 产物：`src-tauri/target/release/bundle/macos/Clipset.app`。需要安装包时使用 `npm run tauri build -- --bundles app,dmg`；DMG 位于 `src-tauri/target/release/bundle/dmg/`。构建的是当前 Mac 架构；本次验证环境为 Apple Silicon。
 
-应用包继续使用本地 ad-hoc 临时签名（`signingIdentity: "-"`），不使用开发证书、不访问证书私钥，也不进行公证。bundle identifier 为 `app.copyy.desktop`。
+应用包必须使用稳定的 Apple 证书签名，bundle identifier 为 `app.copyy.desktop`。ad-hoc 临时签名会把辅助功能授权绑定到单次构建的 `cdhash`，每次更新都会失效，因此 CI 不再允许发布 ad-hoc 安装包。
 
-临时签名的授权身份依赖构建内容，重新打包后可能需要重新添加辅助功能授权。安装到固定位置后只运行该副本，不要混用 DMG 内应用、debug 二进制和构建目录产物。当前按用户要求保留此打包方式。
+GitHub Actions 需要以下 Repository Secrets：
+
+- `APPLE_CERTIFICATE`：Base64 编码的 `.p12` 证书文件。
+- `APPLE_CERTIFICATE_PASSWORD`：导出 `.p12` 时设置的密码。
+- `APPLE_SIGNING_IDENTITY`：证书名称，例如 `Apple Development: 你的姓名 (TEAMID)` 或 `Developer ID Application: 你的姓名 (TEAMID)`。
+
+同一证书和 Bundle ID 持续发布后，macOS 会按稳定的签名要求识别更新版本。首次切换到证书签名时需要重新授权一次；之后同一签名身份的更新不再要求重复授权。当前 Release 仍是 ad-hoc 构建，不能作为长期安装版本。
 
 ## GitHub 自动发布
 
